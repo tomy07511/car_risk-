@@ -11,7 +11,7 @@ st.title(" Modelo Predictivo para Tienda de Videojuegos")
 # Cargar el modelo
 @st.cache_resource
 def load_model():
-    with open('modelo-reg-tree-knn-nn1.pkl', 'rb') as file:
+    with open('modelo-reg-tree-knn-nn.pkl', 'rb') as file:
         return pickle.load(file)
 
 model_Tree, model_Knn, model_NN, variables, min_max_scaler = load_model()
