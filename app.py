@@ -45,11 +45,15 @@ def get_input():
 def prepare_data(input_data):
     data = pd.DataFrame([input_data])
     
-    # One-hot encoding para variables categóricas
+    # Asegurar formato IDÉNTICO al CSV (con comillas simples)
+    data['videojuego'] = data['videojuego'].apply(lambda x: f"'{x}'")
+    data['Plataforma'] = data['Plataforma'].apply(lambda x: f"'{x}'" if x in ['Xbox', 'Play Station'] else x)
+    
+    # One-hot encoding
     data = pd.get_dummies(data, columns=['videojuego', 'Plataforma'], drop_first=False)
     data = pd.get_dummies(data, columns=['Sexo', 'Consumidor_habitual'], drop_first=True)
     
-    # Asegurar todas las columnas del modelo
+    # Asegurar columnas del modelo
     missing_cols = set(variables) - set(data.columns)
     for col in missing_cols:
         data[col] = 0
