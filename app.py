@@ -1,121 +1,135 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import pickle
-import numpy as np
-from io import StringIO
+from sklearn.preprocessing import MinMaxScaler
 
-# Configuración
-st.set_page_config(layout="wide")
-st.title("Predicción de Inversión en Videojuegos")
+# Configuración de la página
+st.set_page_config(page_title="Predicción de Compra de Videojuegos", layout="wide")
+st.title(" Modelo Predictivo para Tienda de Videojuegos")
 
-# Cargar modelo
+# Cargar el modelo
 @st.cache_resource
 def load_model():
-    with open('modelo-reg-tree-knn-nn.pkl', 'rb') as f:
-        return pickle.load(f)
+    with open('modelo-reg-tree-knn-nn1.pkl', 'rb') as file:
+        return pickle.load(file)
 
-try:
-    model_Tree, model_Knn, model_NN, variables, min_max_scaler = load_model()
-except Exception as e:
-    st.error(f"Error al cargar el modelo: {str(e)}")
-    st.stop()
+model_Tree, model_Knn, model_NN, variables, min_max_scaler = load_model()
 
-# Variables específicas de tu modelo
-VIDEOJUEGOS = [
-    'Battlefield', 'Crysis', 'Dead Space', 'F1', 'Fifa',
-    'KOA: Reckoning', 'Mass Effect', 'Sim City'
-]
+# Sidebar para entrada de datos
+st.sidebar.header("📋 Datos del Cliente")
 
-PLATAFORMAS = ['Play Station', 'Xbox', 'Otros', 'PC']
+# Obtener opciones específicas del profesor
+VIDEOJUEGOS = ['Mass Effect', 'Sim City', 'Dead Space', 'Battlefield', 'Fifa', 'F1', 'KOA: Reckoning']
+PLATAFORMAS = ['Play Station', 'PC', 'Xbox', 'Otros']
 
-# Función para preparar datos
-def prepare_data(input_df):
-    # Crear dummies manualmente para coincidir exactamente con el modelo
-    for juego in VIDEOJUEGOS:
-        input_df[f'videojuego_{juego}'] = (input_df['videojuego'] == juego).astype(int)
+def get_input():
+    # Datos del cliente
+    edad = st.sidebar.slider("Edad", 14, 52, 25)
+    sexo = st.sidebar.radio("Sexo", ["Hombre", "Mujer"])
+    consumidor = st.sidebar.checkbox("Consumidor habitual", value=False)
     
-    for plataforma in PLATAFORMAS:
-        input_df[f'Plataforma_{plataforma}'] = (input_df['Plataforma'] == plataforma).astype(int)
+    # Variables clave para el modelo
+    videojuego = st.sidebar.selectbox("Videojuego", VIDEOJUEGOS)
+    plataforma = st.sidebar.selectbox("Plataforma", PLATAFORMAS)
     
-    input_df['Sexo_Mujer'] = (input_df['Sexo'] == 'Mujer').astype(int)
-    input_df['Consumidor_habitual_True'] = input_df['Consumidor_habitual'].astype(int)
+    return {
+        'Edad': edad,
+        'Sexo': sexo,
+        'Consumidor_habitual': consumidor,
+        'videojuego': videojuego,
+        'Plataforma': plataforma
+    }
+
+# Procesamiento de datos
+def prepare_data(input_data):
+    data = pd.DataFrame([input_data])
+    
+    # One-hot encoding para variables categóricas
+    data = pd.get_dummies(data, columns=['videojuego', 'Plataforma'], drop_first=False)
+    data = pd.get_dummies(data, columns=['Sexo', 'Consumidor_habitual'], drop_first=True)
     
     # Asegurar todas las columnas del modelo
-    missing_cols = set(variables) - set(input_df.columns)
+    missing_cols = set(variables) - set(data.columns)
     for col in missing_cols:
-        input_df[col] = 0
+        data[col] = 0
     
-    return input_df[variables]
+    return data[variables]
 
 # Interfaz principal
-st.sidebar.header("Configuración")
+user_input = get_input()
 
-# Opción para subir archivo
-uploaded_file = st.sidebar.file_uploader("Sube tu archivo CSV", type=["csv"])
+if st.sidebar.button(" Calcular Predicción"):
+    data_prep = prepare_data(user_input)
+    
+    # Predicciones
+    pred_tree = model_Tree.predict(data_prep)[0]
+    
+    # Para KNN (normalizar edad)
+    data_knn = data_prep.copy()
+    data_knn[['Edad']] = min_max_scaler.transform(data_knn[['Edad']])
+    pred_knn = model_Knn.predict(data_knn)[0]
+    
+    # Para NN (normalizar edad)
+    data_nn = data_prep.copy()
+    data_nn[['Edad']] = min_max_scaler.transform(data_nn[['Edad']])
+    pred_nn = model_NN.predict(data_nn)[0]
+    
+    # Mostrar resultados
+    st.success(" Predicciones calculadas")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Árbol de Decisión", f"${pred_tree:,.2f}")
+    with col2:
+        st.metric("K-Vecinos", f"${pred_knn:,.2f}")
+    with col3:
+        st.metric("Red Neuronal", f"${pred_nn:,.2f}")
+    
+    # Detalles técnicos
+    with st.expander("🔍 Ver detalles técnicos"):
+        st.write("**Variables utilizadas:**")
+        st.json(user_input)
+        st.write("**Datos preparados para el modelo:**")
+        st.dataframe(data_prep)
 
-if uploaded_file is not None:
-    try:
-        # Leer archivo
-        data = pd.read_csv(uploaded_file)
+# Sección para carga de archivos
+st.header("Opción Avanzada: Carga Masiva")
+uploaded_file = st.file_uploader("Sube un CSV con múltiples clientes", type="csv")
+
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    st.write("Datos cargados:", df.head())
+    
+    if st.button("🔮 Predecir para todos"):
+        # Preparar datos
+        df_prep = pd.get_dummies(df, columns=['videojuego', 'Plataforma'], drop_first=False)
+        df_prep = pd.get_dummies(df_prep, columns=['Sexo', 'Consumidor_habitual'], drop_first=True)
         
-        # Verificar columnas mínimas requeridas
-        required_columns = ['Edad', 'videojuego', 'Sexo', 'Plataforma', 'Consumidor_habitual']
-        if not all(col in data.columns for col in required_columns):
-            st.error(f"El archivo debe contener estas columnas: {', '.join(required_columns)}")
-        else:
-            # Preparar datos
-            data_prep = prepare_data(data.copy())
-            
-            # Hacer predicciones
-            data['Prediccion_Tree'] = model_Tree.predict(data_prep)
-            
-            # Para KNN (normalizar edad)
-            data_knn = data_prep.copy()
-            if 'Edad' in variables:
-                data_knn['Edad'] = min_max_scaler.transform(data_knn[['Edad']])
-            data['Prediccion_Knn'] = model_Knn.predict(data_knn)
-            
-            # Para Red Neuronal
-            nn_pred = model_NN.predict(data_prep)
-            data['Prediccion_NN'] = nn_pred
-            
-            # Mostrar resultados
-            st.success("Predicciones completadas correctamente")
-            
-            # Formatear visualización
-            display_cols = ['videojuego', 'Edad', 'Sexo', 'Plataforma', 'Consumidor_habitual',
-                          'Prediccion_Tree', 'Prediccion_Knn', 'Prediccion_NN']
-            
-            st.dataframe(
-                data[display_cols].style.format({
-                    'Prediccion_Tree': '{:.1f}',
-                    'Prediccion_Knn': '{:.1f}',
-                    'Prediccion_NN': '{:.6f}'
-                }),
-                height=500,
-                use_container_width=True
-            )
-            
-            # Botón de descarga
-            csv = data.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "Descargar resultados",
-                csv,
-                "resultados_prediccion.csv",
-                "text/csv"
-            )
-            
-    except Exception as e:
-        st.error(f"Error al procesar el archivo: {str(e)}")
-
-# Sección de ayuda
-with st.expander("ℹ️ Instrucciones"):
-    st.write("""
-    **Formato requerido del CSV:**
-    - Debe contener las columnas: Edad, videojuego, Sexo, Plataforma, Consumidor_habitual
-    - Ejemplo de valores aceptados:
-      - videojuego: """ + ", ".join(VIDEOJUEGOS) + """
-      - Plataforma: """ + ", ".join(PLATAFORMAS) + """
-      - Sexo: Hombre/Mujer
-      - Consumidor_habitual: 1/0 o True/False
-    """)
+        # Asegurar columnas del modelo
+        missing_cols = set(variables) - set(df_prep.columns)
+        for col in missing_cols:
+            df_prep[col] = 0
+        
+        # Predicciones
+        df['Prediccion_Arbol'] = model_Tree.predict(df_prep[variables])
+        
+        df_knn = df_prep.copy()
+        df_knn[['Edad']] = min_max_scaler.transform(df_knn[['Edad']])
+        df['Prediccion_KNN'] = model_Knn.predict(df_knn[variables])
+        
+        df_nn = df_prep.copy()
+        df_nn[['Edad']] = min_max_scaler.transform(df_nn[['Edad']])
+        df['Prediccion_NN'] = model_NN.predict(df_nn[variables])
+        
+        st.success(f"Predicciones completadas para {len(df)} registros")
+        st.dataframe(df)
+        
+        # Exportar resultados
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "Descargar resultados",
+            csv,
+            "resultados_prediccion.csv",
+            "text/csv"
+        )
